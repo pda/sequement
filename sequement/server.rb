@@ -1,7 +1,7 @@
 require 'socket'
-require 'master'
-require 'sequenceserver'
-require 'pipe'
+require 'sequement/master'
+require 'sequement/sequenceserver'
+require 'sequement/pipe'
 
 module Sequement
 

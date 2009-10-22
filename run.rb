@@ -1,4 +1,4 @@
 #!/usr/bin/ruby -w
 
-require 'server'
+require 'sequement/server'
 Sequement::Server.new('localhost', 2345).run

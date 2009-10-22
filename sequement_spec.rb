@@ -1,6 +1,6 @@
 #!/usr/bin/ruby -w
 
-require 'server'
+require 'sequement/server'
 
 describe Sequement do
 
