@@ -20,8 +20,8 @@ module Sequement
       until @stop do
         if IO.select([@acceptor], nil, nil, TIMEOUT) then
           socket, addr = @acceptor.accept
-          @pipe_out.puts "next #$$"
-          sequence = @pipe_in.gets.chomp
+          send_command :next
+          sequence = @pipe_in.gets.chop
           socket.puts "[PID #$$] %d" % sequence
           socket.close
         end
@@ -31,11 +31,10 @@ module Sequement
     end
 
     def heartbeat
-      #debug "sending heartbeat"
-      @pipe_out.write "heartbeat #$$\n"
+      send_command :heartbeat
       if IO.select([@pipe_in], [], [], TIMEOUT)
-        response = @pipe_in.gets.chop
-        if response == 'OK'
+        response = @pipe_in.read(1).unpack('c')[0]
+        if response == RESPONSE[:ok]
           #debug 'received OK'
         else
           raise "PID #$$ Unexpected heartbeat response: " + response
@@ -46,6 +45,11 @@ module Sequement
     end
 
     private
+
+    def send_command(command)
+      #debug 'sending %s' % command
+      @pipe_out.write [COMMAND[command]].pack('c')
+    end
 
     def signal_init
       @stop = false

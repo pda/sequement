@@ -49,21 +49,20 @@ module Sequement
         return
       end
 
-      line = pipe.gets
+      command = pipe.read(1).unpack('c')[0]
 
-      # heartbeat
-      if match = /^heartbeat (\d+)$/.match(line)
-        pid = match[1].to_i
-        #debug 'received heartbeat from %d' % pid
-        @pipes_out[pid].puts 'OK'
-      # next
-      elsif match = /^next (\d+)$/.match(line)
-        pid = match[1].to_i
-        @pipes_out[pid].puts @sequence += 1
-      # unrecognized
-      else
-        raise "Unrecognized read from pipe: %s" % line
-      end # if match
+      case command
+
+        when COMMAND[:next]
+          @pipes_out[pid].puts @sequence += 1
+
+        when COMMAND[:heartbeat]
+          #debug 'received heartbeat from %d' % pid
+          @pipes_out[pid].write [RESPONSE[:ok]].pack('c')
+
+        else
+          raise "Unrecognized command from pipe: %d" % command
+      end
 
     end
 
