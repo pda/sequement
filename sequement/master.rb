@@ -12,7 +12,7 @@ module Sequement
       @host, @port = host, port
       @concurrency = concurrency
       @pipes_in, @pipes_out = {}, {}
-      @sequence = 0
+      @sequence = Hash.new(0)
       signal_init
     end
 
@@ -49,16 +49,19 @@ module Sequement
         return
       end
 
-      command = pipe.read(1).unpack('c')[0]
+      command = pipe.read(1).unpack('C')[0]
 
       case command
 
         when COMMAND[:next]
-          @pipes_out[pid].puts @sequence += 1
+          length = pipe.read(1).unpack('C')[0]
+          seq_name = pipe.read(length)
+          debug 'seq_name: %s' % seq_name
+          @pipes_out[pid].puts @sequence[seq_name] += 1
 
         when COMMAND[:heartbeat]
           #debug 'received heartbeat from %d' % pid
-          @pipes_out[pid].write [RESPONSE[:ok]].pack('c')
+          @pipes_out[pid].write [RESPONSE[:ok]].pack('C')
 
         else
           raise "Unrecognized command from pipe: %d" % command

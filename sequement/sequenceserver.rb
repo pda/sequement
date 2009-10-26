@@ -20,9 +20,13 @@ module Sequement
       until @stop do
         if IO.select([@acceptor], nil, nil, TIMEOUT) then
           socket, addr = @acceptor.accept
-          send_command :next
+
+          request = socket.gets.chop
+          debug 'request: %s' % request
+
+          send_command :next, request
           sequence = @pipe_in.gets.chop
-          socket.puts "[PID #$$] %d" % sequence
+          socket.puts sequence
           socket.close
         end
         heartbeat
@@ -46,9 +50,14 @@ module Sequement
 
     private
 
-    def send_command(command)
+    def send_command(command, data = nil)
       #debug 'sending %s' % command
-      @pipe_out.write [COMMAND[command]].pack('c')
+      if data
+        raise 'data exceeds maximum length' if data.length > 255
+        @pipe_out.write [COMMAND[command], data.length].pack('CC') + data
+      else
+        @pipe_out.write [COMMAND[command]].pack('C')
+      end
     end
 
     def signal_init
