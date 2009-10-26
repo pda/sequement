@@ -1,4 +1,8 @@
 #!/usr/bin/ruby -w
 
-require 'sequement/server'
-Sequement::Server.new('localhost', 2345).run
+HOST = 'localhost'
+PORT = 2345
+CONCURRENCY = 2
+
+require 'sequement'
+Sequement::Master.new(HOST, PORT, CONCURRENCY).start

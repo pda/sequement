@@ -4,15 +4,15 @@ module Sequement
 
   class SequenceServer
 
-    TIMEOUT = 3
+    TIMEOUT = 2
 
-    def initialize(acceptor, hb_pipe, seq_pipe)
+    def initialize(acceptor, pipe_out, pipe_in)
 
       signal_init
 
       @acceptor = acceptor
-      @hb_pipe = hb_pipe.writer!
-      @seq_pipe = seq_pipe.reader!
+      @pipe_out = pipe_out.writer!
+      @pipe_in = pipe_in.reader!
 
     end
 
@@ -20,17 +20,29 @@ module Sequement
       until @stop do
         if IO.select([@acceptor], nil, nil, TIMEOUT) then
           socket, addr = @acceptor.accept
-          @hb_pipe.puts "next #$$"
-          sequence = @seq_pipe.gets.chomp
+          @pipe_out.puts "next #$$"
+          sequence = @pipe_in.gets.chomp
           socket.puts "[PID #$$] %d" % sequence
           socket.close
         end
         heartbeat
       end
+      #debug "PID #$$ stopped"
     end
 
     def heartbeat
-      @hb_pipe.write "heartbeat #$$\n"
+      #debug "sending heartbeat"
+      @pipe_out.write "heartbeat #$$\n"
+      if IO.select([@pipe_in], [], [], TIMEOUT)
+        response = @pipe_in.gets.chop
+        if response == 'OK'
+          #debug 'received OK'
+        else
+          raise "PID #$$ Unexpected heartbeat response: " + response
+        end
+      else
+        raise "PID #$$ timeout waiting for heartbeat response"
+      end
     end
 
     private
@@ -41,8 +53,10 @@ module Sequement
         if @stop
           puts "PID #$$ forced exit"
           exit
+        else
+          #debug "PID #$$ got SIGINT, setting @stop"
+          @stop = true
         end
-        @stop = true
       end
     end
 
