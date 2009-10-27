@@ -34,6 +34,9 @@ module Sequement
       #debug "master loop ended, waiting for worker processes.."
       Process.waitall
 
+      #debug 'writing sequences to disk'
+      @sequences.each_value { |seq| seq.save_sequence }
+
     end
 
     #######
