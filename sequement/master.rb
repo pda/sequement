@@ -1,4 +1,4 @@
-require 'sequement/sequenceserver'
+require 'sequement/worker'
 require 'sequement/pipe'
 
 module Sequement
@@ -20,7 +20,7 @@ module Sequement
 
       #debug 'creating listening socket'
       @socket = create_listen_socket
-      trap('EXIT') { @socket.close } # applies to parent & child processes
+      trap('EXIT') { @socket.close } # applies to parent & worker processes
 
       loop do
         spawn_up_to_concurrency unless @stop
@@ -30,7 +30,7 @@ module Sequement
         result[0].each { |pipe| read_pipe pipe }
       end
 
-      #debug "master loop ended, waiting for child processes.."
+      #debug "master loop ended, waiting for worker processes.."
       Process.waitall
 
     end
@@ -87,17 +87,17 @@ module Sequement
 
     # Forks a single worker, opening a pair of IPC pipes
     def fork_worker
-      pipe_child_to_master = Pipe.new
-      pipe_master_to_child = Pipe.new
+      pipe_worker_to_master = Pipe.new
+      pipe_master_to_worker = Pipe.new
       if pid = fork
         #debug 'forked PID %d' % pid
-        @pipes_in[pid] = pipe_child_to_master.reader!
-        @pipes_out[pid] = pipe_master_to_child.writer!
+        @pipes_in[pid] = pipe_worker_to_master.reader!
+        @pipes_out[pid] = pipe_master_to_worker.writer!
       else
-        SequenceServer.new(
+        Worker.new(
           @socket,
-          pipe_child_to_master,
-          pipe_master_to_child
+          pipe_worker_to_master,
+          pipe_master_to_worker
         ).run
         exit
       end

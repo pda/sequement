@@ -2,7 +2,7 @@ require 'socket'
 
 module Sequement
 
-  class SequenceServer
+  class Worker
 
     TIMEOUT = 2
 
