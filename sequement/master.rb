@@ -1,4 +1,6 @@
 require 'sequement/worker'
+require 'sequement/sequence'
+require 'sequement/writer'
 require 'sequement/pipe'
 
 module Sequement
@@ -14,6 +16,7 @@ module Sequement
       @concurrency = concurrency
       @pipes_in, @pipes_out = {}, {}
       @sequences = {}
+      @writer = Sequement::Writer.new
       signal_init
     end
 
@@ -32,10 +35,18 @@ module Sequement
       end
 
       #debug "master loop ended, waiting for worker processes.."
-      Process.waitall
+      until @pipes_in.empty? do
+        pid = Process.wait
+        @pipes_in.delete(pid)
+        @pipes_out.delete(pid)
+      end
 
       #debug 'writing sequences to disk'
       @sequences.each_value { |seq| seq.save_sequence }
+
+      #debug 'sending HUP to writer'
+      Process.kill('HUP', @writer.pid)
+      Process.waitall
 
     end
 
@@ -122,7 +133,7 @@ module Sequement
 
     def sequence(name)
       @sequences.fetch name do
-        @sequences[name] = Sequement::Sequence.new(name, @dir)
+        @sequences[name] = Sequement::Sequence.new(name, @dir, @writer)
       end
     end
 

@@ -5,9 +5,10 @@ module Sequement
     RESERVE_SIZE = 100
     RESERVE_THRESHOLD = 20
 
-    def initialize(name, dir)
+    def initialize(name, dir, writer = nil)
       @name = name
       @dir = dir
+      @writer = writer
       load_sequence
     end
 
@@ -28,7 +29,11 @@ module Sequement
     end
 
     def write(data)
-      File.open(path, 'w') { |file| file.puts data }
+      if @writer
+        @writer.write path, data
+      else
+        File.open(path, 'w') { |file| file.puts data }
+      end
     end
 
     def load_sequence

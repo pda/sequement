@@ -1,6 +1,7 @@
 require 'sequement/master'
 require 'sequement/worker'
 require 'sequement/sequence'
+require 'sequement/writer'
 
 module Sequement
 

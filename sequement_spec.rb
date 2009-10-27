@@ -40,7 +40,6 @@ describe Sequement::Sequence do
 
 		seq_postcrash = Sequement::Sequence.new('name', 'tmp')
 		seq_postcrash.next.should >= 3
-		debug seq_postcrash.next
   end
 
 end
