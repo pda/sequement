@@ -8,11 +8,12 @@ module Sequement
     SOCKET_TIMEOUT = 2
     SOCKET_BACKLOG = 10
 
-    def initialize(host, port, concurrency)
+    def initialize(host, port, dir, concurrency)
       @host, @port = host, port
+      @dir = dir
       @concurrency = concurrency
       @pipes_in, @pipes_out = {}, {}
-      @sequence = Hash.new(0)
+      @sequences = {}
       signal_init
     end
 
@@ -57,7 +58,7 @@ module Sequement
           length = pipe.read(1).unpack('C')[0]
           seq_name = pipe.read(length)
           debug 'seq_name: %s' % seq_name
-          @pipes_out[pid].puts @sequence[seq_name] += 1
+          @pipes_out[pid].puts sequence(seq_name).next
 
         when COMMAND[:heartbeat]
           #debug 'received heartbeat from %d' % pid
@@ -113,6 +114,12 @@ module Sequement
           puts "\nShutting down... (interrupt again to force exit)"
           @stop = true
         end
+      end
+    end
+
+    def sequence(name)
+      @sequences.fetch name do
+        @sequences[name] = Sequement::Sequence.new(name, @dir)
       end
     end
 
