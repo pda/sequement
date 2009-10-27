@@ -60,7 +60,7 @@ module Sequement
         when COMMAND[:next]
           length = pipe.read(1).unpack('C')[0]
           seq_name = pipe.read(length)
-          debug 'seq_name: %s' % seq_name
+          #debug 'seq_name: %s' % seq_name
           @pipes_out[pid].puts sequence(seq_name).next
 
         when COMMAND[:heartbeat]

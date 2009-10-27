@@ -22,7 +22,7 @@ module Sequement
           socket, addr = @acceptor.accept
 
           request = socket.gets.chop
-          debug 'request: %s' % request
+          #debug 'request: %s' % request
 
           send_command :next, request
           sequence = @pipe_in.gets.chop
