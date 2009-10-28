@@ -37,7 +37,7 @@ module Sequement
     def heartbeat
       send_command :heartbeat
       if IO.select([@pipe_in], [], [], TIMEOUT)
-        response = @pipe_in.read(1).unpack('c')[0]
+        response = @pipe_in.getc
         if response == RESPONSE[:ok]
           #debug 'received OK'
         else
@@ -54,9 +54,11 @@ module Sequement
       #debug 'sending %s' % command
       if data
         raise 'data exceeds maximum length' if data.length > 255
-        @pipe_out.write [COMMAND[command], data.length].pack('CC') + data
+        @pipe_out.putc COMMAND[command]
+        @pipe_out.putc data.length
+        @pipe_out.write data
       else
-        @pipe_out.write [COMMAND[command]].pack('C')
+        @pipe_out.putc COMMAND[command]
       end
     end
 

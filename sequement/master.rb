@@ -64,19 +64,19 @@ module Sequement
         return
       end
 
-      command = pipe.read(1).unpack('C')[0]
+      command = pipe.getc
 
       case command
 
         when COMMAND[:next]
-          length = pipe.read(1).unpack('C')[0]
+          length = pipe.getc
           seq_name = pipe.read(length)
           #debug 'seq_name: %s' % seq_name
           @pipes_out[pid].puts sequence(seq_name).next
 
         when COMMAND[:heartbeat]
           #debug 'received heartbeat from %d' % pid
-          @pipes_out[pid].write [RESPONSE[:ok]].pack('C')
+          @pipes_out[pid].putc RESPONSE[:ok]
 
         else
           raise "Unrecognized command from pipe: %d" % command
