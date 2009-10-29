@@ -37,15 +37,15 @@ module Sequement
       #debug "master loop ended, waiting for worker processes.."
       until @pipes_in.empty? do
         pid = Process.wait
-        @pipes_in.delete(pid)
-        @pipes_out.delete(pid)
+        @pipes_in.delete pid
+        @pipes_out.delete pid
       end
 
       #debug 'writing sequences to disk'
       @sequences.each_value { |seq| seq.save_sequence }
 
       #debug 'sending HUP to writer'
-      Process.kill('HUP', @writer.pid)
+      Process.kill 'HUP', @writer.pid
       Process.waitall
 
     end
@@ -123,6 +123,7 @@ module Sequement
       trap('INT') do
         if @stop
           puts "Master PID #$$ forced exit"
+          Process.kill 'HUP', @writer.pid
           exit
         else
           puts "\nShutting down... (interrupt again to force exit)"

@@ -46,8 +46,15 @@ module Sequement
     def select_loop
       until @stop do
         if IO.select([@pipe], nil, nil, SOCKET_TIMEOUT)
+
+          if @pipe.eof?
+            debug 'writer got EOF from master, exiting'
+            exit
+          end
+
           path = @pipe.gets.chop
           data = @pipe.gets.chop
+
           #debug "writing #{data} to #{path}"
           File.open(path, 'w') { |file| file.puts data }
         end
