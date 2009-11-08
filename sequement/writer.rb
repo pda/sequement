@@ -2,11 +2,11 @@ module Sequement
 
   class Writer
 
-    SOCKET_TIMEOUT = 1
-
     attr_reader :pid
 
-    def initialize
+    def initialize(pipe_sig)
+      @pipe_sig = pipe_sig
+      @pipe = Pipe.new
       fork_writer
     end
 
@@ -19,10 +19,11 @@ module Sequement
     private
 
     def fork_writer
-      @pipe = Pipe.new
       if @pid = fork
+        #debug 'forked writer: PID %d' % @pid
         @pipe.writer!
       else
+        $0 = 'sequement_writer'
         @pipe.reader!
         signal_init
         select_loop
@@ -30,25 +31,18 @@ module Sequement
     end
 
     def signal_init
-      @stop = false
-      trap('INT', 'IGNORE')
-      trap('HUP') do
-        #debug 'writer got HUP'
-        if @stop
-          puts "PID #$$ forced exit"
-          exit
-        else
-          @stop = true
-        end
-      end
+      trap :INT, 'IGNORE'
     end
 
     def select_loop
-      until @stop do
-        if IO.select([@pipe], nil, nil, SOCKET_TIMEOUT)
 
+      loop do
+
+        selected = IO.select [@pipe, @pipe_sig]
+
+        if selected.first.include? @pipe
           if @pipe.eof?
-            debug 'writer got EOF from master, exiting'
+            #debug 'writer got EOF from master, exiting'
             exit
           end
 
@@ -58,9 +52,14 @@ module Sequement
           #debug "writing #{data} to #{path}"
           File.open(path, 'w') { |file| file.puts data }
         end
+
+        break if selected.first.include? @pipe_sig
+
       end
-      #debug 'writer stopped, exiting'
+
+      debug 'writer stopped'
       exit
+
     end
 
   end

@@ -6,19 +6,27 @@ module Sequement
 
     TIMEOUT = 2
 
-    def initialize(acceptor, pipe_out, pipe_in)
+    def initialize(acceptor, pipe_out, pipe_in, pipe_sig)
 
-      signal_init
+      trap :INT, 'IGNORE'
+      trap :TERM, 'DEFAULT'
 
       @acceptor = acceptor
       @pipe_out = pipe_out.writer!
       @pipe_in = pipe_in.reader!
+      @pipe_sig = pipe_sig
 
     end
 
     def run
-      until @stop do
-        if IO.select([@acceptor], nil, nil, TIMEOUT) then
+      loop do
+        if selected = IO.select([@acceptor, @pipe_sig], nil, nil, TIMEOUT)
+
+          if selected.first.include? @pipe_sig
+            debug "worker stopping"
+            return
+          end
+
           socket, addr = @acceptor.accept
 
           request = socket.gets.chop
@@ -31,7 +39,6 @@ module Sequement
         end
         heartbeat
       end
-      #debug "PID #$$ stopped"
     end
 
     def heartbeat
@@ -39,7 +46,7 @@ module Sequement
       if IO.select([@pipe_in], [], [], TIMEOUT)
 
         if @pipe_in.eof?
-          debug 'worker got EOF from master, exiting'
+          #debug 'worker got EOF from master, exiting'
           exit
         end
 
@@ -70,21 +77,8 @@ module Sequement
           @pipe_out.putc COMMAND[command]
         end
       rescue Errno::EPIPE
-        debug 'broken pipe to master, worker exiting'
+        #debug 'broken pipe to master, worker exiting'
         exit
-      end
-    end
-
-    def signal_init
-      @stop = false
-      trap('INT') do
-        if @stop
-          puts "PID #$$ forced exit"
-          exit
-        else
-          #debug "PID #$$ got SIGINT, setting @stop"
-          @stop = true
-        end
       end
     end
 

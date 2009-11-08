@@ -16,7 +16,9 @@ module Sequement
       @concurrency = concurrency
       @pipes_in, @pipes_out = {}, {}
       @sequences = {}
-      @writer = Sequement::Writer.new
+      @pipe_sig_read, @pipe_sig_write = IO.pipe
+      @pipe_writer_read, @pipe_writer_write = IO.pipe
+      @writer = Sequement::Writer.new(@pipe_writer_read)
       signal_init
     end
 
@@ -27,25 +29,27 @@ module Sequement
       trap('EXIT') { @socket.close } # applies to parent & worker processes
 
       loop do
-        spawn_up_to_concurrency unless @stop
+        spawn_up_to_concurrency
         break if @pipes_in.empty?
         #debug 'select() on %d read pipes' % @pipes_in.length
-        result = IO.select(@pipes_in.values, nil, nil, SOCKET_TIMEOUT) or redo
-        result[0].each { |pipe| read_pipe pipe }
+        if selected = IO.select(@pipes_in.values + [@pipe_sig_read], nil, nil, SOCKET_TIMEOUT)
+          break if selected.first.include? @pipe_sig_read
+          selected.first.each { |pipe| read_pipe pipe }
+        end
       end
 
-      #debug "master loop ended, waiting for worker processes.."
+      debug "waiting for worker processes.."
       until @pipes_in.empty? do
         pid = Process.wait
         @pipes_in.delete pid
         @pipes_out.delete pid
       end
 
-      #debug 'writing sequences to disk'
+      debug 'writing any sequences to disk'
       @sequences.each_value { |seq| seq.save_sequence }
 
-      #debug 'sending HUP to writer'
-      Process.kill 'HUP', @writer.pid
+      debug 'stopping writer'
+      @pipe_writer_write.putc 0
       Process.waitall
 
     end
@@ -105,30 +109,30 @@ module Sequement
       pipe_worker_to_master = Pipe.new
       pipe_master_to_worker = Pipe.new
       if pid = fork
-        #debug 'forked PID %d' % pid
+        #debug 'forked worker: PID %d' % pid
         @pipes_in[pid] = pipe_worker_to_master.reader!
         @pipes_out[pid] = pipe_master_to_worker.writer!
       else
         Worker.new(
           @socket,
           pipe_worker_to_master,
-          pipe_master_to_worker
+          pipe_master_to_worker,
+          @pipe_sig_read
         ).run
         exit
       end
     end
 
+    def traps(*args, &cmd)
+      cmd = args.pop unless block_given?
+      args.each { |signal| trap signal, cmd }
+    end
+
     def signal_init
-      @stop = false
-      trap('INT') do
-        if @stop
-          puts "Master PID #$$ forced exit"
-          Process.kill 'HUP', @writer.pid
-          exit
-        else
-          puts "\nShutting down... (interrupt again to force exit)"
-          @stop = true
-        end
+      traps :INT, :TERM do
+        traps :INT, :TERM, 'DEFAULT'
+        puts "PID #$$ shutting down..."
+        @pipe_sig_write.putc 0
       end
     end
 
