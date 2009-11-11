@@ -27,18 +27,22 @@ module Sequement
             return
           end
 
-          socket, addr = @acceptor.accept
+          begin
+            socket, addr = @acceptor.accept_nonblock
 
-          request = socket.gets.chop
-          #debug 'request: %s' % request
+            request = socket.gets.chop
+            #debug 'request: %s' % request
 
-          send_command :next, request
-          sequence = @pipe_in.gets.chop
-          socket.puts sequence
-          socket.close
+            send_command :next, request
+            sequence = @pipe_in.gets.chop
+            socket.puts sequence
+            socket.close
+          rescue Errno::EAGAIN, Errno::ECONNABORTED
+          end
         end
         heartbeat
       end
+
     end
 
     def heartbeat
