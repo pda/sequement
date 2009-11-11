@@ -23,17 +23,11 @@ module Sequement
       loop do
         if selected = IO.select([@acceptor, @pipe_sig], nil, nil, TIMEOUT)
 
-          if selected.first.include? @pipe_sig
-            debug "worker stopping"
-            return
-          end
+          return if selected.first.include? @pipe_sig
 
           begin
             socket, addr = @acceptor.accept_nonblock
-
             request = socket.gets.chop
-            #debug 'request: %s' % request
-
             send_command :next, request
             sequence = @pipe_in.gets.chop
             socket.puts sequence
@@ -51,15 +45,13 @@ module Sequement
       if IO.select([@pipe_in], [], [], TIMEOUT)
 
         if @pipe_in.eof?
-          #debug 'worker got EOF from master, exiting'
+          debug 'worker got EOF from master, exiting'
           exit
         end
 
         response = @pipe_in.getc
 
-        if response == RESPONSE[:ok]
-          #debug 'received OK'
-        else
+        unless response == RESPONSE[:ok]
           raise "PID #$$ Unexpected heartbeat response: " + response.to_s
         end
 
@@ -71,7 +63,6 @@ module Sequement
     private
 
     def send_command(command, data = nil)
-      #debug 'sending %s' % command
       begin
         if data
           raise 'data exceeds maximum length' if data.length > 255
@@ -82,7 +73,7 @@ module Sequement
           @pipe_out.putc COMMAND[command]
         end
       rescue Errno::EPIPE
-        #debug 'broken pipe to master, worker exiting'
+        debug 'broken pipe to master, worker exiting'
         exit
       end
     end

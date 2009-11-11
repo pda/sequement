@@ -55,7 +55,6 @@ module Sequement
       loop do
         spawn_up_to_concurrency
         pipes = @pipes_in.values + [pipe_sig_reader]
-        #debug 'select() on %d read pipes' % pipes.length
         if selected = IO.select(pipes, nil, nil, SOCKET_TIMEOUT)
           break if selected.first.include? pipe_sig_reader
           selected.first.each { |pipe| read_pipe pipe }
@@ -74,7 +73,6 @@ module Sequement
     # Persists actual value for each known sequence.
     # Instructs writer to stop its child process, waits for it to exit.
     def shutdown_writer
-      debug 'writing sequences to disk, stopping writer'
       @sequences.each_value { |seq| seq.save_sequence }
       @writer.stop
     end
@@ -84,7 +82,6 @@ module Sequement
       pid = @pipes_in.index(pipe)
 
       if pipe.eof
-        #debug 'eof from pid %d' % pid
         @pipes_in.delete(pid)
         @pipes_out.delete(pid)
         return
@@ -97,11 +94,9 @@ module Sequement
         when COMMAND[:next]
           length = pipe.getc
           seq_name = pipe.read length
-          #debug 'seq_name: %s' % seq_name
           @pipes_out[pid].puts sequence(seq_name).next
 
         when COMMAND[:heartbeat]
-          #debug 'received heartbeat from %d' % pid
           @pipes_out[pid].putc RESPONSE[:ok]
 
         else
@@ -112,7 +107,6 @@ module Sequement
     end
 
     def create_listen_socket
-      #debug "Binding to #{@host}:#{@port}"
       socket = Socket.new(Socket::AF_INET, Socket::SOCK_STREAM, 0)
       socket.setsockopt(Socket::SOL_SOCKET, Socket::SO_REUSEADDR, true)
       socket.bind(Socket.pack_sockaddr_in(@port, @host))
@@ -126,7 +120,6 @@ module Sequement
         worker_to_master = Pipe.new
         master_to_worker = Pipe.new
         if pid = fork
-          #debug 'forked worker: PID %d' % pid
           @pipes_in[pid] = worker_to_master.reader!
           @pipes_out[pid] = master_to_worker.writer!
         else

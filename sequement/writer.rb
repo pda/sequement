@@ -27,7 +27,6 @@ module Sequement
     private
 
     def initialize_parent
-        #debug 'forked writer: PID %d' % @pid
         @pipe.writer!
         @pipe_sig.writer!
     end
@@ -38,7 +37,6 @@ module Sequement
         @pipe.reader!
         @pipe_sig.reader!
         select_loop
-        debug 'writer stopped'
     end
 
     def select_loop
@@ -48,16 +46,17 @@ module Sequement
         selected = IO.select [@pipe, @pipe_sig]
 
         if selected.first.include? @pipe
+
           if @pipe.eof?
-            #debug 'writer got EOF from master, exiting'
+            debug 'writer got EOF from master, exiting'
             exit
           end
 
           path = @pipe.gets.chop
           data = @pipe.gets.chop
 
-          #debug "writing #{data} to #{path}"
           File.open(path, 'w') { |file| file.puts data }
+
         end
 
         break if selected.first.include? @pipe_sig
