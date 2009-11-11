@@ -8,17 +8,18 @@ module Sequement
 
     def initialize(acceptor, pipe_out, pipe_in, pipe_sig)
 
-      trap :INT, 'IGNORE'
-      trap :TERM, 'DEFAULT'
-
       @acceptor = acceptor
-      @pipe_out = pipe_out.writer!
-      @pipe_in = pipe_in.reader!
+      @pipe_out = pipe_out
+      @pipe_in = pipe_in
       @pipe_sig = pipe_sig
 
     end
 
-    def run
+    def start
+
+      trap :INT, 'IGNORE'
+      trap :TERM, 'DEFAULT'
+
       loop do
         if selected = IO.select([@acceptor, @pipe_sig], nil, nil, TIMEOUT)
 

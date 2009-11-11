@@ -10,52 +10,74 @@ module Sequement
     SOCKET_TIMEOUT = 2
     SOCKET_BACKLOG = 10
 
+    # host, port: listen for TCP connection
+    # dir: directory to read/write sequences
+    # concurrency: number of workers to fork
     def initialize(host, port, dir, concurrency)
       @host, @port = host, port
       @dir = dir
       @concurrency = concurrency
-      @pipes_in, @pipes_out = {}, {}
-      @sequences = {}
-      @pipe_sig_read, @pipe_sig_write = IO.pipe
-      @pipe_writer_read, @pipe_writer_write = IO.pipe
-      @writer = Sequement::Writer.new(@pipe_writer_read)
-      signal_init
     end
 
+    # Starts the server:
+    # * forks writer and workers
+    # * monitors IPC pipes until interrupted.
     def start
 
-      #debug 'creating listening socket'
+      @writer = Sequement::Writer.new.start
+
+      @sequences = {}
+      @pipes_in, @pipes_out = {}, {}
+      @pipe_sig = Pipe.new
+
+      traps :INT, :TERM do
+        traps :INT, :TERM, 'DEFAULT'
+        puts "PID #$$ shutting down..."
+        @pipe_sig.writer.putc 0
+      end
+
       @socket = create_listen_socket
-      trap('EXIT') { @socket.close } # applies to parent & worker processes
+      trap(:EXIT) { @socket.close }
 
-      loop do
-        spawn_up_to_concurrency
-        break if @pipes_in.empty?
-        #debug 'select() on %d read pipes' % @pipes_in.length
-        if selected = IO.select(@pipes_in.values + [@pipe_sig_read], nil, nil, SOCKET_TIMEOUT)
-          break if selected.first.include? @pipe_sig_read
-          selected.first.each { |pipe| read_pipe pipe }
-        end
-      end
-
-      debug "waiting for worker processes.."
-      until @pipes_in.empty? do
-        pid = Process.wait
-        @pipes_in.delete pid
-        @pipes_out.delete pid
-      end
-
-      debug 'writing any sequences to disk'
-      @sequences.each_value { |seq| seq.save_sequence }
-
-      debug 'stopping writer'
-      @pipe_writer_write.putc 0
-      Process.waitall
+      master_loop
+      wait_for_workers
+      shutdown_writer
 
     end
 
     #######
     private
+
+    # Spawns workers as needed to fulfill @concurrency.
+    # Uses select() to monitor IPC and signal pipes.
+    def master_loop
+      pipe_sig_reader = @pipe_sig.reader
+      loop do
+        spawn_up_to_concurrency
+        pipes = @pipes_in.values + [pipe_sig_reader]
+        #debug 'select() on %d read pipes' % pipes.length
+        if selected = IO.select(pipes, nil, nil, SOCKET_TIMEOUT)
+          break if selected.first.include? pipe_sig_reader
+          selected.first.each { |pipe| read_pipe pipe }
+        end
+      end
+    end
+
+    def wait_for_workers
+      debug "waiting for workers %s to exit.." % @pipes_in.keys.join(', ')
+      until @pipes_in.empty? do
+        pid = Process.wait
+        [@pipes_in, @pipes_out].each { |pipe| pipe.delete pid }
+      end
+    end
+
+    # Persists actual value for each known sequence.
+    # Instructs writer to stop its child process, waits for it to exit.
+    def shutdown_writer
+      debug 'writing sequences to disk, stopping writer'
+      @sequences.each_value { |seq| seq.save_sequence }
+      @writer.stop
+    end
 
     def read_pipe(pipe)
 
@@ -74,7 +96,7 @@ module Sequement
 
         when COMMAND[:next]
           length = pipe.getc
-          seq_name = pipe.read(length)
+          seq_name = pipe.read length
           #debug 'seq_name: %s' % seq_name
           @pipes_out[pid].puts sequence(seq_name).next
 
@@ -84,6 +106,7 @@ module Sequement
 
         else
           raise "Unrecognized command from pipe: %d" % command
+
       end
 
     end
@@ -100,39 +123,22 @@ module Sequement
     # fork workers until configured concurrency
     def spawn_up_to_concurrency
       while @pipes_in.length < CONCURRENCY
-        fork_worker
-      end
-    end
-
-    # Forks a single worker, opening a pair of IPC pipes
-    def fork_worker
-      pipe_worker_to_master = Pipe.new
-      pipe_master_to_worker = Pipe.new
-      if pid = fork
-        #debug 'forked worker: PID %d' % pid
-        @pipes_in[pid] = pipe_worker_to_master.reader!
-        @pipes_out[pid] = pipe_master_to_worker.writer!
-      else
-        Worker.new(
-          @socket,
-          pipe_worker_to_master,
-          pipe_master_to_worker,
-          @pipe_sig_read
-        ).run
-        exit
-      end
-    end
-
-    def traps(*args, &cmd)
-      cmd = args.pop unless block_given?
-      args.each { |signal| trap signal, cmd }
-    end
-
-    def signal_init
-      traps :INT, :TERM do
-        traps :INT, :TERM, 'DEFAULT'
-        puts "PID #$$ shutting down..."
-        @pipe_sig_write.putc 0
+        worker_to_master = Pipe.new
+        master_to_worker = Pipe.new
+        if pid = fork
+          #debug 'forked worker: PID %d' % pid
+          @pipes_in[pid] = worker_to_master.reader!
+          @pipes_out[pid] = master_to_worker.writer!
+        else
+          $0 = 'sequement_worker'
+          Worker.new(
+            @socket,
+            worker_to_master.writer!,
+            master_to_worker.reader!,
+            @pipe_sig.reader!
+          ).start
+          exit
+        end
       end
     end
 

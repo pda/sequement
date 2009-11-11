@@ -2,12 +2,15 @@ module Sequement
 
   class Writer
 
-    attr_reader :pid
-
-    def initialize(pipe_sig)
-      @pipe_sig = pipe_sig
-      @pipe = Pipe.new
-      fork_writer
+    def start
+      @pipe, @pipe_sig = Pipe.new, Pipe.new
+      if @pid = fork
+        initialize_parent
+      else
+        initialize_child
+        exit
+      end
+      self
     end
 
     def write(path, data)
@@ -15,23 +18,27 @@ module Sequement
       @pipe.puts data
     end
 
+    def stop
+      @pipe_sig.putc 0
+      Process.waitpid @pid
+    end
+
     #######
     private
 
-    def fork_writer
-      if @pid = fork
+    def initialize_parent
         #debug 'forked writer: PID %d' % @pid
         @pipe.writer!
-      else
-        $0 = 'sequement_writer'
-        @pipe.reader!
-        signal_init
-        select_loop
-      end
+        @pipe_sig.writer!
     end
 
-    def signal_init
-      trap :INT, 'IGNORE'
+    def initialize_child
+        traps :INT, :TERM, 'IGNORE'
+        $0 = 'sequement_writer'
+        @pipe.reader!
+        @pipe_sig.reader!
+        select_loop
+        debug 'writer stopped'
     end
 
     def select_loop
@@ -56,9 +63,6 @@ module Sequement
         break if selected.first.include? @pipe_sig
 
       end
-
-      debug 'writer stopped'
-      exit
 
     end
 
