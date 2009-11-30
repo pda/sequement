@@ -6,19 +6,39 @@ module Sequement
 
     TIMEOUT = 2
 
-    def initialize(acceptor, pipe_out, pipe_in, pipe_sig)
+    attr_reader :pid, :pipe_from_child, :pipe_to_child
 
+    def initialize(acceptor, pipe_sig)
       @acceptor = acceptor
-      @pipe_out = pipe_out
-      @pipe_in = pipe_in
       @pipe_sig = pipe_sig
-
     end
 
     def start
 
-      trap :INT, 'IGNORE'
-      trap :TERM, 'DEFAULT'
+      @pipe_from_child = Pipe.new
+      @pipe_to_child = Pipe.new
+
+      if @pid = fork
+        @pipe_from_child.reader!
+        @pipe_to_child.writer!
+      else
+        $0 = 'sequement_worker'
+        trap :INT, 'IGNORE'
+        trap :TERM, 'DEFAULT'
+        @pipe_from_child.writer!
+        @pipe_to_child.reader!
+        @pipe_sig.reader!
+        select_loop
+        exit
+      end
+
+      self
+
+    end
+
+    private
+
+    def select_loop
 
       loop do
         if selected = IO.select([@acceptor, @pipe_sig], nil, nil, TIMEOUT)
@@ -29,7 +49,7 @@ module Sequement
             socket, addr = @acceptor.accept_nonblock
             request = socket.gets.chop
             send_command :next, request
-            sequence = @pipe_in.gets.chop
+            sequence = @pipe_to_child.gets.chop
             socket.puts sequence
             socket.close
           rescue Errno::EAGAIN, Errno::ECONNABORTED
@@ -42,14 +62,14 @@ module Sequement
 
     def heartbeat
       send_command :heartbeat
-      if IO.select([@pipe_in], [], [], TIMEOUT)
+      if IO.select([@pipe_to_child], [], [], TIMEOUT)
 
-        if @pipe_in.eof?
+        if @pipe_to_child.eof?
           debug 'worker got EOF from master, exiting'
           exit
         end
 
-        response = @pipe_in.getc
+        response = @pipe_to_child.getc
 
         unless response == RESPONSE[:ok]
           raise "PID #$$ Unexpected heartbeat response: " + response.to_s
@@ -60,17 +80,15 @@ module Sequement
       end
     end
 
-    private
-
     def send_command(command, data = nil)
       begin
         if data
           raise 'data exceeds maximum length' if data.length > 255
-          @pipe_out.putc COMMAND[command]
-          @pipe_out.putc data.length
-          @pipe_out.write data
+          @pipe_from_child.putc COMMAND[command]
+          @pipe_from_child.putc data.length
+          @pipe_from_child.write data
         else
-          @pipe_out.putc COMMAND[command]
+          @pipe_from_child.putc COMMAND[command]
         end
       rescue Errno::EPIPE
         debug 'broken pipe to master, worker exiting'

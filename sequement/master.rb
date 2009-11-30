@@ -1,4 +1,4 @@
-require 'sequement/worker'
+require 'sequement/workerpool'
 require 'sequement/sequence'
 require 'sequement/writer'
 require 'sequement/pipe'
@@ -7,7 +7,6 @@ module Sequement
 
   class Master
 
-    SOCKET_TIMEOUT = 2
     SOCKET_BACKLOG = 10
 
     # host, port: listen for TCP connection
@@ -24,23 +23,17 @@ module Sequement
     # * monitors IPC pipes until interrupted.
     def start
 
-      @writer = Sequement::Writer.new.start
-
+      @worker_pool = WorkerPool.new create_listen_socket
+      @writer = Writer.new.start
       @sequences = {}
-      @pipes_in, @pipes_out = {}, {}
-      @pipe_sig = Pipe.new
 
       traps :INT, :TERM do
         traps :INT, :TERM, 'DEFAULT'
         puts "PID #$$ shutting down..."
-        @pipe_sig.writer.putc 0
+        @worker_pool.stop
       end
 
-      @socket = create_listen_socket
-      trap(:EXIT) { @socket.close }
-
       master_loop
-      wait_for_workers
       shutdown_writer
 
     end
@@ -51,59 +44,32 @@ module Sequement
     # Spawns workers as needed to fulfill @concurrency.
     # Uses select() to monitor IPC and signal pipes.
     def master_loop
-      pipe_sig_reader = @pipe_sig.reader
       loop do
-        spawn_up_to_concurrency
-        pipes = @pipes_in.values + [pipe_sig_reader]
-        if selected = IO.select(pipes, nil, nil, SOCKET_TIMEOUT)
-          break if selected.first.include? pipe_sig_reader
-          selected.first.each { |pipe| read_pipe pipe }
-        end
-      end
-    end
-
-    def wait_for_workers
-      debug "waiting for workers %s to exit.." % @pipes_in.keys.join(', ')
-      until @pipes_in.empty? do
-        pid = Process.wait
-        [@pipes_in, @pipes_out].each { |pipe| pipe.delete pid }
+        @worker_pool.spawn_to CONCURRENCY
+        break unless @worker_pool.select { |worker| worker_read worker }
       end
     end
 
     # Persists actual value for each known sequence.
-    # Instructs writer to stop its child process, waits for it to exit.
+     # Instructs writer to stop its child process, waits for it to exit.
     def shutdown_writer
       @sequences.each_value { |seq| seq.save_sequence }
       @writer.stop
     end
 
-    def read_pipe(pipe)
-
-      pid = @pipes_in.index(pipe)
-
-      if pipe.eof
-        @pipes_in.delete(pid)
-        @pipes_out.delete(pid)
-        return
-      end
-
+    def worker_read(worker)
+      pipe = worker.pipe_from_child
       command = pipe.getc
-
       case command
-
         when COMMAND[:next]
           length = pipe.getc
           seq_name = pipe.read length
-          @pipes_out[pid].puts sequence(seq_name).next
-
+          worker.pipe_to_child.puts sequence(seq_name).next
         when COMMAND[:heartbeat]
-          @pipes_out[pid].putc RESPONSE[:ok]
-
+          worker.pipe_to_child.putc RESPONSE[:ok]
         else
           raise "Unrecognized command from pipe: %d" % command
-
       end
-
     end
 
     def create_listen_socket
@@ -112,27 +78,6 @@ module Sequement
       socket.bind(Socket.pack_sockaddr_in(@port, @host))
       socket.listen(SOCKET_BACKLOG)
       socket
-    end
-
-    # fork workers until configured concurrency
-    def spawn_up_to_concurrency
-      while @pipes_in.length < CONCURRENCY
-        worker_to_master = Pipe.new
-        master_to_worker = Pipe.new
-        if pid = fork
-          @pipes_in[pid] = worker_to_master.reader!
-          @pipes_out[pid] = master_to_worker.writer!
-        else
-          $0 = 'sequement_worker'
-          Worker.new(
-            @socket,
-            worker_to_master.writer!,
-            master_to_worker.reader!,
-            @pipe_sig.reader!
-          ).start
-          exit
-        end
-      end
     end
 
     def sequence(name)
