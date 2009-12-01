@@ -16,6 +16,7 @@ module Sequement
       @host, @port = host, port
       @dir = dir
       @concurrency = concurrency
+      @sequences = {}
     end
 
     # Starts the server:
@@ -23,16 +24,10 @@ module Sequement
     # * monitors IPC pipes until interrupted.
     def start
 
-      @worker_pool = WorkerPool.new create_listen_socket
       @writer = Writer.new.start
-      @sequences = {}
+      @worker_pool = WorkerPool.new create_listen_socket
 
-      traps :INT, :TERM do
-        traps :INT, :TERM, 'DEFAULT'
-        puts "PID #$$ shutting down..."
-        @worker_pool.stop
-      end
-
+      sig_init
       master_loop
       shutdown_writer
 
@@ -45,16 +40,9 @@ module Sequement
     # Uses select() to monitor IPC and signal pipes.
     def master_loop
       loop do
-        @worker_pool.spawn_to CONCURRENCY
+        @worker_pool.spawn_to @concurrency
         break unless @worker_pool.select { |worker| worker_read worker }
       end
-    end
-
-    # Persists actual value for each known sequence.
-     # Instructs writer to stop its child process, waits for it to exit.
-    def shutdown_writer
-      @sequences.each_value { |seq| seq.save_sequence }
-      @writer.stop
     end
 
     def worker_read(worker)
@@ -72,6 +60,13 @@ module Sequement
       end
     end
 
+    # Persists actual value for each known sequence.
+    # Instructs writer to stop its child process, waits for it to exit.
+    def shutdown_writer
+      @sequences.each_value { |seq| seq.save_sequence }
+      @writer.stop
+    end
+
     def create_listen_socket
       socket = Socket.new(Socket::AF_INET, Socket::SOCK_STREAM, 0)
       socket.setsockopt(Socket::SOL_SOCKET, Socket::SO_REUSEADDR, true)
@@ -83,6 +78,14 @@ module Sequement
     def sequence(name)
       @sequences.fetch name do
         @sequences[name] = Sequement::Sequence.new(name, @dir, @writer)
+      end
+    end
+
+    def sig_init
+      traps :INT, :TERM do
+        traps :INT, :TERM, 'DEFAULT'
+        puts "PID #$$ shutting down..."
+        @worker_pool.stop
       end
     end
 
